@@ -85,3 +85,6 @@ load_time_series_subset = load_time_series_mapped[bus_i_subset] * scaling_factor
 load_time_series_subset_aggr = load_time_series_subset.sum(axis=1)
 
 P_max = load_time_series_subset_aggr.max()
+
+
+## SEE THE FILE Task4.ipynb INSTEAD FOR THE ACTUAL CODE. EASIER TO MANAGE EACH TASK THERE

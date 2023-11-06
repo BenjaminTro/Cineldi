@@ -81,41 +81,60 @@ def run_power_flow(net):
 # List to store results
 scaling_factors = np.linspace(1, 2, 11)  # Range of scaling factors from 1 to 2
 min_bus_voltage = []
+aggregated_load_demand = []
+
+original_load2 = {}
+for i in bus_i_subset:
+    original_load2[i] = net.load.at[i, 'p_mw']
 
 # Iterate through scaling factors
 for scaling_factor in scaling_factors:
     # Scale the load demand values proportionally for each bus in the subset
     for bus_id in bus_i_subset:
         original_load = net.load.at[bus_id, 'p_mw']
-        net.load.at[bus_id, 'p_mw'] = original_load * scaling_factor
+        net.load.at[bus_id, 'p_mw'] = original_load2[bus_id] * scaling_factor
     
     # Run power flow analysis and store the minimum bus voltage
     min_voltage = run_power_flow(net)
     min_bus_voltage.append(min_voltage)
-    
+
+    # Calculate the aggregated load demand in the area
+    aggregated_load = sum(net.load.at[bus_id, 'p_mw'] for bus_id in bus_i_subset)
+    aggregated_load_demand.append(aggregated_load)
+
     # Reset the load values to their original values for the next iteration
     for bus_id in bus_i_subset:
-        net.load.at[bus_id, 'p_mw'] = original_load
+        net.load.at[bus_id, 'p_mw'] = original_load2[bus_id]
+
+voltage_limit = 0.95
+
+# Plot the results
+plt.figure(figsize=(10, 6))
+plt.plot(aggregated_load_demand, min_voltage_values, marker='o', linestyle='-', color='b', label='Minimum Bus Voltage')
+plt.axhline(y=voltage_limit, color='r', linestyle='--', label='Voltage Limit (0.95)')
+plt.xlabel('Aggregated Load Demand (MW)')
+plt.ylabel('Minimum Bus Voltage (pu)')
+plt.title('Minimum Bus Voltage vs Aggregated Load Demand')
+plt.legend()
+plt.grid(True)
+# Show the plot
+plt.show()
 
 # Compare minimum bus voltage values with the voltage limit of 0.95
-voltage_limit = 0.95
 for i, scaling_factor in enumerate(scaling_factors):
     if min_bus_voltage[i] < voltage_limit:
         print(f"Scaling Factor: {scaling_factor:.2f}, Minimum Bus Voltage: {min_bus_voltage[i]:.3f} (Below {voltage_limit:.2f})")
     else:
-        print(f"Scaling Factor: {scaling_factor:.2f}, Minimum Bus Voltage: {min_bus_voltage[i]:.3f} (Above {voltage_limit:.2f})")
+        print(f"Scaling Factor: {scaling_factor:.2f}, Minimum Bus Voltage: {min_bus_voltage[i]:.3f} (Above {voltage_limit:.2f})") 
+          
 # %% TASK 2 - Accessing load time series for a full year
 
 # TASK 2: Load time series for all load points for a full year
-load_time_series_mapped = profiles_mapped.mul(net.load['p_mw'])
+max_load = sum(net.load['p_mw'][i] for i in bus_i_subset)
 
-# Each column represents a load point, and each row represents an hour of the year
-# It is possible to access specific time series for individual load points using column indexing
-# For example, to access the time series for the first load point:
-time_series_load_point_1 = load_time_series_mapped.iloc[:, 0]
+print(net.load['p_mw'][bus_i_subset])
+print("The maximum load of the individual buses in the subset summed is:", max_load)
 
-# To access the time series for the second load point:
-time_series_load_point_2 = load_time_series_mapped.iloc[:, 1]
 # %% TASK 3 - Calculate and plot aggregated load deamnd for 90,91,92,96
 
 # Task 3: Calculate the aggregated load demand time series by summing the load values for the selected load points
@@ -266,7 +285,6 @@ else:
 # %% TASK 9
 
 # Taks 9: Constant new load demand as opposed to time dependent
-# Constant load demand of the new load
 constant_new_load_demand = 0.4  # MW
 
 # Estimate the maximum overloading by adding the constant load demand to the existing maximum load demand
@@ -274,41 +292,20 @@ estimated_max_overloading = max_load_demand + constant_new_load_demand
 
 # Print the estimate
 print(f"Estimated Maximum Overloading (without time dependence): {estimated_max_overloading:.3f} MW")
+
 # %% TASK 10
 
-# Task 10: Coincidence factor after adding the new load series
-# Load profiles of the existing loads (before adding the new load time series)
-existing_load_profiles = load_time_series_mapped[bus_i_subset].values
+#Task 10: Coincidence factor
+existing_load_profiles = load_time_series_mapped[bus_i_subset] + new_load_time_series[bus_i_subset]#.values
+max_values = existing_load_profiles.max()
 
-# Load profile of the new load time series
-new_load_profile = new_load_time_series.values
-
-# Initialize a list to store individual coincidence factors
-coincidence_factors = []
-
-# Calculate the coincidence factor for each existing load profile
-for existing_profile in existing_load_profiles.T:  # Transpose to iterate over columns
-    numerator = np.sum(existing_profile * new_load_profile)
-    denominator_existing = np.sqrt(np.sum(existing_profile ** 2))
-    denominator_new = np.sqrt(np.sum(new_load_profile ** 2))
-    coincidence_factors.append(numerator / (denominator_existing * denominator_new))
-
-# Calculate the average coincidence factor
-average_coincidence_factor = np.mean(coincidence_factors)
-
-# Print the average coincidence factor
-print(f"Average Coincidence Factor of the Loads After Adding the New Load Time Series: {average_coincidence_factor:.3f}")
-# %%
-max_new_load_value = new_load_time_series.max()
-
-# Calculate the sum of individual maximum demands for the existing loads
-sum_of_max_individual_loads = max_existing_load_values.sum()
+# Sum the maximum values
+sum_pmax = max_values.sum()
+print(sum_pmax)
 
 # Calculate the coincidence factor
-coincidence_factor = max_new_load_value / sum_of_max_individual_loads
-
-# Print the coincidence factor
-print(f"Coincidence Factor of the Loads After Adding the New Load Time Series (Using Maximum Demand Ratio): {coincidence_factor:.3f}")
+coincidence = new_max_load_demand / (max_load + 0.4) #(0.3908+0.4) #sum_pmax
+print("The coincidence factor with the existing load profile is:", coincidence)
 
 # %% TASK 11
 # Task 11: Number of hours to be cut per year
@@ -331,8 +328,19 @@ constant_new_load_demand = 0.4  # MW
 
 # Create a load duration curve for the constant load demand
 constant_load_duration_curve = np.full(len(sorted_load_demand), constant_new_load_demand)
-
+#new_sorted_load_demand 
 # Plot both load duration curves
+plt.figure(figsize=(10, 6))
+plt.plot(hours, new_sorted_load_demand, color='orange', label='Task 7 Load Duration Curve')
+plt.plot(hours, constant_load_duration_curve, color='red', linestyle='--', label='Constant Load Demand (0.4 MW)')
+plt.xlabel('Hours (Sorted by Load)')
+plt.ylabel('Load Demand (MW)')
+plt.title('Load Duration Curve Comparison')
+plt.legend()
+plt.grid(True)
+plt.show()
+
+#The old load:
 plt.figure(figsize=(10, 6))
 plt.plot(hours, sorted_load_demand, color='blue', label='Task 5 Load Duration Curve')
 plt.plot(hours, constant_load_duration_curve, color='red', linestyle='--', label='Constant Load Demand (0.4 MW)')
@@ -342,5 +350,26 @@ plt.title('Load Duration Curve Comparison')
 plt.legend()
 plt.grid(True)
 plt.show()
+
+
+# %% TASK 15
+# Task 15: Number of hours to be cut per year with P_lim = 0.4 MW
+new_sorted_load_demand = np.sort(load_data['After New Load (MW)'].values)[::-1]
+
+# Initialize a counter for hours exceeding the power flow limit
+hours_congested = 0
+
+# Iterate through the load duration curve
+for load_value in new_sorted_load_demand:
+    if load_value > constant_new_load_demand:
+        hours_congested += 1
+
+# Print the number of hours per year that would require load reduction to avoid congestion
+print(f"Number of Hours Per Year Requiring Load Reduction to Avoid Congestion (Using New Load Data): {hours_congested} hours")
+
+# Calculate the new coincidence factor
+coincidence = estimated_max_overloading / (max_load + 0.4)
+print("The coincidence factor with the new overloading load profile is:",coincidence)
+
 
 # %%
